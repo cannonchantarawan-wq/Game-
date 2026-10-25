@@ -1,0 +1,239 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>หลุมดำแห่งความรัก</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Pridi:wght@300;400&amp;display=swap">
+<style>
+:root{color-scheme:dark;--bg:#000;--hint:rgba(255,214,226,.8)}
+html,body{height:100%;margin:0;background:var(--bg);overflow:hidden}
+canvas{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none;cursor:ns-resize}
+.hint{position:fixed;left:0;right:0;bottom:0;margin:0;padding:0 16px calc(22px + env(safe-area-inset-bottom,0px));text-align:center;font:15px/1.5 "Sarabun","Noto Sans Thai",system-ui,sans-serif;color:var(--hint);pointer-events:none;transition:opacity 1.2s ease}
+.hint.off{opacity:0}
+.say{position:fixed;left:0;right:0;top:calc(6% + env(safe-area-inset-top,0px));margin:0;padding:0 16px;text-align:center;pointer-events:none;font-family:"Pridi","Sarabun","Noto Sans Thai",Georgia,serif;color:#ffe3ec;text-shadow:0 0 28px rgba(255,90,140,.55)}
+.say b{display:block;font-weight:300;font-size:clamp(40px,min(13vw,12vh),88px);line-height:1.2;transition:opacity .9s ease}
+.say i{display:block;font-style:normal;font-size:15px;color:rgba(255,214,226,.72);transition:opacity .9s ease}
+.say.out b,.say.out i{opacity:0}
+</style>
+</head>
+<body>
+<canvas id="c" role="img" aria-label="หัวใจที่เต้นอยู่ตรงกลาง มีดาวสีชมพูไหลวนเป็นจานรอบๆ"></canvas>
+<p class="say" id="say"><b id="w">Love</b><i id="l">English</i></p>
+<p class="hint" id="hint">ลากขึ้น–ลงเพื่อเอียงมุมมอง</p>
+<script>
+(() => {
+  const cv = document.getElementById('c');
+  const ctx = cv.getContext('2d');
+  const hint = document.getElementById('hint');
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  const RIN = 1.45, ROUT = 11.5, RB = 14, BB = 4, LENS = 1.15, NH = 44, NW = 12, NG = NH + NW;
+  const words = [['Love', 'English'], ['Amor', 'Español'], ['รัก', 'ภาษาไทย'], ['Cinta', 'Bahasa Melayu']];
+  const stops = [[0,255,246,249],[.08,255,214,226],[.2,255,140,172],[.36,240,62,112],[.56,190,52,150],[.8,122,72,212],[1,62,52,172]];
+  const hcol = ['255,170,196', '255,120,160', '255,214,226'];
+
+  function colorAt(t) {
+    for (let i = 1; i < stops.length; i++) {
+      if (t <= stops[i][0]) {
+        const a = stops[i - 1], b = stops[i], k = (t - a[0]) / (b[0] - a[0]);
+        return [a[1] + (b[1] - a[1]) * k, a[2] + (b[2] - a[2]) * k, a[3] + (b[3] - a[3]) * k];
+      }
+    }
+    return stops[stops.length - 1].slice(1);
+  }
+
+  const style = [], lwid = [];
+  for (let g = 0; g < RB; g++) {
+    const t = (g + .5) / RB, c = colorAt(t);
+    for (let k = 0; k < BB; k++) {
+      const lift = (k / (BB - 1)) * .2, al = .38 + .2 * k;
+      style[g * BB + k] = 'rgba(' + Math.round(c[0] + (255 - c[0]) * lift) + ',' + Math.round(c[1] + (255 - c[1]) * lift) + ',' + Math.round(c[2] + (255 - c[2]) * lift) + ',' + al.toFixed(2) + ')';
+    }
+    lwid[g] = 1.7 - .8 * t;
+  }
+
+  // รูปหัวใจ (กว้างครึ่งละ 16 หน่วย จัดกึ่งกลางแนวตั้งแล้ว)
+  const heart = new Path2D();
+  for (let i = 0; i <= 72; i++) {
+    const t = i / 72 * 6.2832;
+    const x = 16 * Math.pow(Math.sin(t), 3);
+    const y = -(13 * Math.cos(t) - 5 * Math.cos(2 * t) - 2 * Math.cos(3 * t) - Math.cos(4 * t)) - 2.5;
+    if (i) heart.lineTo(x, y); else heart.moveTo(x, y);
+  }
+  heart.closePath();
+
+  let W, H, dpr, u, cx, cy, N = 0;
+  let R, A, S, Z, LB, HS, HC, HX, HY, HA, cnt, segs;
+  let tilt = .4, tiltT = .4;
+
+  const spawnR = () => {
+    const a = Math.pow(RIN, 1.5), b = Math.pow(ROUT, 1.5);
+    return Math.pow(a + Math.random() * (b - a), 2 / 3);
+  };
+
+  function alloc(n) {
+    N = n;
+    R = new Float32Array(N); A = new Float32Array(N); S = new Float32Array(N);
+    Z = new Float32Array(N); LB = new Float32Array(N);
+    HS = new Float32Array(NG); HC = new Uint8Array(NG);
+    HX = new Float32Array(NG); HY = new Float32Array(NG); HA = new Float32Array(NG);
+    for (let i = 0; i < N; i++) {
+      R[i] = spawnR(); LB[i] = Math.pow(RIN / R[i], 1.6);
+      A[i] = Math.random() * 6.2832;
+      S[i] = .75 + Math.random() * .5;
+      Z[i] = (Math.random() - .5) * .16;
+    }
+    for (let i = 0; i < NG; i++) { HS[i] = .5 + Math.random(); HC[i] = i < NH ? (Math.random() * 3) | 0 : (i - NH) % 4; }
+    for (let i = NH; i < NG; i++) { R[i] = 4 + Math.random() * (ROUT - 4); LB[i] = Math.pow(RIN / R[i], 1.6); }
+    cnt = new Int32Array(RB * BB);
+    segs = [];
+    for (let b = 0; b < RB * BB; b++) segs.push(new Float32Array(N * 4));
+  }
+
+  function resize() {
+    dpr = Math.min(2, devicePixelRatio || 1);
+    W = innerWidth; H = innerHeight;
+    cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    cx = W / 2; cy = H * .55;
+    u = Math.min(W, H * 1.7) * .5 * .96 / ROUT;
+    ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H);
+    const n = Math.max(1800, Math.min(4200, Math.round(W * H / 380)));
+    if (n !== N) alloc(n);
+  }
+  addEventListener('resize', resize);
+  resize();
+
+  const bump = (x, c, w) => Math.exp(-Math.pow((x - c) / w, 2));
+
+  let last = performance.now();
+  function frame(now) {
+    const dt = Math.min(.05, (now - last) / 1000 || .016);
+    last = now;
+    tilt += (tiltT - tilt) * Math.min(1, dt * 7);
+    const sp = reduce ? .35 : 1;
+    const lk = LENS * (1.15 - tilt) / .75;
+
+    // จังหวะหัวใจเต้น: ตุบ-ตุบ แล้วพัก
+    const ph = (now / 1000) % 1.6;
+    const beat = bump(ph, .15, .07) + .7 * bump(ph, .42, .08);
+    const sc = (u / 15) * (1 + (reduce ? .03 : .09) * beat);
+
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.fillStyle = 'rgba(0,0,0,' + (1 - Math.pow(.91, dt * 60)).toFixed(3) + ')';
+    ctx.fillRect(0, 0, W, H);
+
+    ctx.setTransform(dpr * sc, 0, 0, dpr * sc, cx * dpr, cy * dpr);
+    ctx.fillStyle = '#000';
+    ctx.fill(heart);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+    cnt.fill(0);
+    for (let i = 0; i < N; i++) {
+      let r = R[i];
+      const w = 2.3 * Math.pow(RIN / r, 1.1) * S[i] * sp;
+      const a0 = A[i], a1 = a0 - w * dt;
+      A[i] = a1;
+      r -= .09 * dt * Math.sqrt(4 / r) * sp;
+      const rmin = i >= NH && i < NG ? 2.6 : RIN;
+      if (r < rmin) { r = i < NG ? ROUT - Math.random() * .4 : spawnR(); R[i] = r; LB[i] = Math.pow(RIN / r, 1.6); A[i] = Math.random() * 6.2832; if (i < NG) HA[i] = 0; continue; }
+      R[i] = r;
+      LB[i] = Math.pow(RIN / r, 1.6);
+
+      const s0 = Math.sin(a0), c0 = Math.cos(a0), s1 = Math.sin(a1), c1 = Math.cos(a1);
+      const lb = LB[i] * lk, zj = Z[i];
+      const x0 = cx + r * c0 * u, x1 = cx + r * c1 * u;
+      const y0 = cy + (r * s0 * tilt + (s0 < 0 ? lb * s0 : 0) + zj) * u;
+      const y1 = cy + (r * s1 * tilt + (s1 < 0 ? lb * s1 : 0) + zj) * u;
+
+      if (i < NG) {
+        HX[i] = x1; HY[i] = y1;
+        HA[i] = Math.min(1, (ROUT - r) / 1.5, (r - rmin) / 1) * (.55 + .45 * (.5 - .5 * c1));
+        continue;
+      }
+      const bi = Math.min(BB - 1, ((.5 - .5 * c1) * BB) | 0);
+      const gi = Math.min(RB - 1, ((r - RIN) / (ROUT - RIN) * RB) | 0);
+      const b = gi * BB + bi, k = cnt[b], arr = segs[b];
+      arr[k] = x0; arr[k + 1] = y0; arr[k + 2] = x1; arr[k + 3] = y1;
+      cnt[b] = k + 4;
+    }
+
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.lineCap = 'round';
+    for (let b = 0; b < RB * BB; b++) {
+      const n = cnt[b];
+      if (!n) continue;
+      const arr = segs[b];
+      ctx.strokeStyle = style[b];
+      ctx.lineWidth = lwid[(b / BB) | 0];
+      ctx.beginPath();
+      for (let j = 0; j < n; j += 4) { ctx.moveTo(arr[j], arr[j + 1]); ctx.lineTo(arr[j + 2], arr[j + 3]); }
+      ctx.stroke();
+    }
+
+    // หัวใจดวงเล็กที่โคจรอยู่ในจาน
+    const gs = Math.max(4, Math.min(15, u * .35));
+    for (let i = 0; i < NH; i++) {
+      if (HA[i] <= .02) continue;
+      const s = gs * HS[i] / 32;
+      ctx.setTransform(dpr * s, 0, 0, dpr * s, HX[i] * dpr, HY[i] * dpr);
+      ctx.fillStyle = 'rgba(' + hcol[HC[i]] + ',' + (HA[i] * .9).toFixed(2) + ')';
+      ctx.fill(heart);
+    }
+
+    // คำว่ารักจากหลายภาษา ลอยโคจรบนระนาบเดียวกับจาน
+    const ys = .55 + .45 * tilt;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    for (let i = NH; i < NG; i++) {
+      if (HA[i] <= .02) continue;
+      const fs = Math.max(11, Math.min(22, u * .62)) * (.7 + .4 * HS[i]);
+      ctx.font = '300 ' + fs.toFixed(1) + 'px Pridi, Sarabun, "Noto Sans Thai", Georgia, serif';
+      ctx.setTransform(dpr, 0, 0, dpr * ys, HX[i] * dpr, HY[i] * dpr);
+      ctx.fillStyle = 'rgba(255,228,238,' + (HA[i] * .8).toFixed(2) + ')';
+      ctx.fillText(words[HC[i]][0], 0, 0);
+    }
+
+    // ขอบหัวใจเรืองแสง แรงขึ้นตามจังหวะเต้น
+    ctx.setTransform(dpr * sc, 0, 0, dpr * sc, cx * dpr, cy * dpr);
+    ctx.shadowColor = 'rgba(255,90,140,' + (.07 + .1 * beat).toFixed(3) + ')';
+    ctx.shadowBlur = 18;
+    ctx.strokeStyle = 'rgba(255,228,238,' + (.07 + .1 * beat).toFixed(3) + ')';
+    ctx.lineWidth = 2.6 / sc;
+    ctx.lineJoin = 'round';
+    ctx.stroke(heart);
+    ctx.shadowBlur = 0;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+
+  const sayEl = document.getElementById('say'), wEl = document.getElementById('w'), lEl = document.getElementById('l');
+  let wi = 0;
+  setInterval(() => {
+    sayEl.classList.add('out');
+    setTimeout(() => {
+      wi = (wi + 1) % words.length;
+      wEl.textContent = words[wi][0];
+      lEl.textContent = words[wi][1];
+      sayEl.classList.remove('out');
+    }, 900);
+  }, 3400);
+
+  let drag = null;
+  const hide = () => hint.classList.add('off');
+  setTimeout(hide, 5500);
+  cv.addEventListener('pointerdown', e => { drag = e.clientY; cv.setPointerCapture(e.pointerId); hide(); });
+  cv.addEventListener('pointermove', e => {
+    if (drag === null) return;
+    tiltT = Math.max(.14, Math.min(.95, tiltT + (e.clientY - drag) / H * 1.3));
+    drag = e.clientY;
+  });
+  ['pointerup', 'pointercancel'].forEach(n => cv.addEventListener(n, () => { drag = null; }));
+})();
+</script>
+</body>
+</html>
